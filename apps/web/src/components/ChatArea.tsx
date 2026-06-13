@@ -1,15 +1,17 @@
 import { useEffect, useRef } from 'react'
-import type { ChatMessage, DeepSeekModel } from '@deep-chat/shared'
+import type { ChatMessage, DeepSeekModel, ConnectionState } from '@deep-chat/shared'
 import MessageBubble from './MessageBubble'
 import ChatInput from './ChatInput'
 import WelcomeScreen from './WelcomeScreen'
 import ModelSelector from './ModelSelector'
+import ConnectionStatus from './ConnectionStatus'
 import { AlertCircle, Menu } from 'lucide-react'
 
 interface Props {
   messages: ChatMessage[]
   isLoading: boolean
   error: string | null
+  connectionState: ConnectionState
   model: DeepSeekModel
   onModelChange: (model: DeepSeekModel) => void
   onSend: (content: string) => void
@@ -17,7 +19,7 @@ interface Props {
   onMenuOpen: () => void
 }
 
-export default function ChatArea({ messages, isLoading, error, model, onModelChange, onSend, onStop, onMenuOpen }: Props) {
+export default function ChatArea({ messages, isLoading, error, connectionState, model, onModelChange, onSend, onStop, onMenuOpen }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll on new messages
@@ -36,6 +38,8 @@ export default function ChatArea({ messages, isLoading, error, model, onModelCha
           <Menu size={20} />
         </button>
         <ModelSelector value={model} onChange={onModelChange} />
+        <div className="flex-1" />
+        <ConnectionStatus state={connectionState} />
       </header>
 
       {/* Messages */}

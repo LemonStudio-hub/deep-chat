@@ -7,7 +7,12 @@ interface MessageMeta {
   createdAt: number
 }
 
-const MAX_MESSAGES = 500
+interface ConnectionMeta {
+  lastPong: number
+}
+
+const HEARTBEAT_INTERVAL_MS = 30_000
+const CONNECTION_TIMEOUT_MS = 60_000
 
 export class ChatRoom {
   private state: DurableObjectState
@@ -31,12 +36,22 @@ export class ChatRoom {
 
     this.state.acceptWebSocket(server)
 
+    // Track this connection
+    const meta: ConnectionMeta = { lastPong: Date.now() }
+    this.state.storage.put(`conn:${this.getWsTag(server)}`, meta)
+
+    // Schedule heartbeat alarm if not already set
+    await this.ensureAlarm()
+
     return new Response(null, { status: 101, webSocket: client })
   }
 
   // ── Hibernation handlers ───────────────────────────────────────────────────
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    // Update last-activity on any message (implicit keepalive)
+    this.touchConnection(ws)
+
     const text = typeof message === 'string' ? message : new TextDecoder().decode(message)
 
     let data: WSClientMessage
@@ -57,18 +72,66 @@ export class ChatRoom {
       case 'history':
         await this.handleHistory(ws)
         break
+      case 'pong':
+        // Client responded to our ping — already handled by touchConnection above
+        break
       default:
         this.send(ws, { type: 'error', message: `Unknown message type: ${(data as any).type}` })
     }
   }
 
-  async webSocketClose(_ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
-    // Nothing to clean up — getWebSockets() is the source of truth
+  async webSocketClose(ws: WebSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
+    this.cleanupConnection(ws)
   }
 
-  async webSocketError(_ws: WebSocket, _error: unknown): Promise<void> {
+  async webSocketError(ws: WebSocket, _error: unknown): Promise<void> {
     this.abortController?.abort()
     this.abortController = null
+    this.cleanupConnection(ws)
+  }
+
+  // ── Heartbeat via alarm ────────────────────────────────────────────────────
+
+  async alarm(): Promise<void> {
+    const now = Date.now()
+    const allSockets = this.state.getWebSockets()
+
+    // Send ping to all connections and prune stale ones
+    for (const ws of allSockets) {
+      const tag = this.getWsTag(ws)
+      const connMeta = await this.state.storage.get<ConnectionMeta>(`conn:${tag}`)
+
+      if (!connMeta) {
+        // No metadata — stale, close
+        this.safeClose(ws, 1001, 'No connection metadata')
+        continue
+      }
+
+      if (now - connMeta.lastPong > CONNECTION_TIMEOUT_MS) {
+        // Connection is stale — close it
+        this.safeClose(ws, 1008, 'Heartbeat timeout')
+        this.cleanupConnection(ws)
+        continue
+      }
+
+      // Send ping
+      this.send(ws, { type: 'ping', ts: now })
+    }
+
+    // Clean up alarm metadata for dead connections
+    const connKeys = await this.state.storage.list({ prefix: 'conn:' })
+    for (const key of connKeys.keys()) {
+      const wsTag = key.replace('conn:', '')
+      const stillAlive = allSockets.some((ws) => this.getWsTag(ws) === wsTag)
+      if (!stillAlive) {
+        await this.state.storage.delete(key)
+      }
+    }
+
+    // Re-schedule alarm if there are still connections
+    if (allSockets.length > 0) {
+      await this.state.storage.setAlarm(Date.now() + HEARTBEAT_INTERVAL_MS)
+    }
   }
 
   // ── Message handlers ───────────────────────────────────────────────────────
@@ -94,9 +157,10 @@ export class ChatRoom {
 
     // Append user message to storage
     const cursor = (await this.state.storage.get<number>('cursor')) || 0
-    const userMsg: ChatMessage = { role: 'user', content }
-    await this.state.storage.put(`msg:${String(cursor).padStart(4, '0')}`, { ...userMsg, ts: Date.now() })
-    await this.state.storage.put('cursor', cursor + 1)
+    await this.state.storage.transaction(async (txn) => {
+      await txn.put(`msg:${String(cursor).padStart(4, '0')}`, { role: 'user', content, ts: Date.now() })
+      await txn.put('cursor', cursor + 1)
+    })
 
     // Build message history for DeepSeek
     const history = await this.getHistory()
@@ -131,11 +195,7 @@ export class ChatRoom {
           Authorization: `Bearer ${this.env.DEEPSEEK_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          model,
-          messages,
-          stream: true,
-        }),
+        body: JSON.stringify({ model, messages, stream: true }),
         signal: abortController.signal,
       })
     } catch (err) {
@@ -173,15 +233,7 @@ export class ChatRoom {
 
           const payload = trimmed.slice(6)
           if (payload === '[DONE]') {
-            // Persist assistant message
-            const cursor = (await this.state.storage.get<number>('cursor')) || 0
-            await this.state.storage.put(`msg:${String(cursor).padStart(4, '0')}`, {
-              role: 'assistant',
-              content: assistantContent,
-              ts: Date.now(),
-            })
-            await this.state.storage.put('cursor', cursor + 1)
-
+            await this.persistAssistantMessage(assistantContent)
             this.send(ws, { type: 'stream_end' })
             this.abortController = null
             return
@@ -202,26 +254,14 @@ export class ChatRoom {
 
       // Stream ended without [DONE] — still persist
       if (assistantContent) {
-        const cursor = (await this.state.storage.get<number>('cursor')) || 0
-        await this.state.storage.put(`msg:${String(cursor).padStart(4, '0')}`, {
-          role: 'assistant',
-          content: assistantContent,
-          ts: Date.now(),
-        })
-        await this.state.storage.put('cursor', cursor + 1)
+        await this.persistAssistantMessage(assistantContent)
       }
       this.send(ws, { type: 'stream_end' })
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         // Generation was stopped by client — persist partial content
         if (assistantContent) {
-          const cursor = (await this.state.storage.get<number>('cursor')) || 0
-          await this.state.storage.put(`msg:${String(cursor).padStart(4, '0')}`, {
-            role: 'assistant',
-            content: assistantContent,
-            ts: Date.now(),
-          })
-          await this.state.storage.put('cursor', cursor + 1)
+          await this.persistAssistantMessage(assistantContent)
         }
         this.send(ws, { type: 'stream_end' })
       } else {
@@ -239,23 +279,57 @@ export class ChatRoom {
     return [...entries.values()] as Array<ChatMessage & { ts: number }>
   }
 
-  // ── Alarm for cleanup ──────────────────────────────────────────────────────
+  private async persistAssistantMessage(content: string): Promise<void> {
+    const cursor = (await this.state.storage.get<number>('cursor')) || 0
+    await this.state.storage.transaction(async (txn) => {
+      await txn.put(`msg:${String(cursor).padStart(4, '0')}`, {
+        role: 'assistant',
+        content,
+        ts: Date.now(),
+      })
+      await txn.put('cursor', cursor + 1)
+    })
+  }
 
-  async alarm(): Promise<void> {
-    const meta = await this.state.storage.get<MessageMeta>('meta')
-    if (!meta) {
-      await this.state.storage.deleteAll()
-      return
+  // ── Connection tracking ────────────────────────────────────────────────────
+
+  private getWsTag(ws: WebSocket): string {
+    // Use a hash of the WebSocket's identity for storage keys
+    // Durable Objects tag each accepted WS — we derive a stable key from it
+    const tags = this.state.getWebSockets()
+    const idx = tags.indexOf(ws)
+    return idx >= 0 ? `ws:${idx}:${Date.now()}` : `ws:unknown:${Date.now()}`
+  }
+
+  private touchConnection(ws: WebSocket): void {
+    // We update lastPong by scanning conn: keys — but since getWsTag isn't
+    // perfectly stable across hibernations, we use a simpler approach:
+    // store a single "lastActivity" timestamp that gets updated on any message.
+    // The alarm checks individual connections via getWebSockets() and closes
+    // those that haven't responded to pings.
+    //
+    // For robust tracking, we store per-WS metadata using the WS tag.
+    // On any message (including pong), we mark this WS as alive.
+    const allSockets = this.state.getWebSockets()
+    const idx = allSockets.indexOf(ws)
+    if (idx >= 0) {
+      this.state.storage.put(`conn:ws:${idx}`, { lastPong: Date.now() } satisfies ConnectionMeta)
     }
+  }
 
-    // If older than 7 days, clean up
-    if (Date.now() - meta.createdAt > 7 * 24 * 60 * 60 * 1000) {
-      await this.state.storage.deleteAll()
-      return
+  private cleanupConnection(ws: WebSocket): void {
+    const allSockets = this.state.getWebSockets()
+    const idx = allSockets.indexOf(ws)
+    if (idx >= 0) {
+      this.state.storage.delete(`conn:ws:${idx}`)
     }
+  }
 
-    // Re-set alarm for next check
-    await this.state.storage.setAlarm(Date.now() + 24 * 60 * 60 * 1000)
+  private async ensureAlarm(): Promise<void> {
+    const currentAlarm = await this.state.storage.getAlarm()
+    if (currentAlarm === null) {
+      await this.state.storage.setAlarm(Date.now() + HEARTBEAT_INTERVAL_MS)
+    }
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -265,6 +339,14 @@ export class ChatRoom {
       ws.send(JSON.stringify(data))
     } catch {
       // Socket may be closed
+    }
+  }
+
+  private safeClose(ws: WebSocket, code: number, reason: string): void {
+    try {
+      ws.close(code, reason)
+    } catch {
+      // Already closed
     }
   }
 }

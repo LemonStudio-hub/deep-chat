@@ -68,8 +68,8 @@ export interface ApiError {
 
 // ─── WebSocket Protocol ──────────────────────────────────────────────────────
 
-export type WSClientMessageType = 'chat' | 'stop' | 'history'
-export type WSServerMessageType = 'stream_chunk' | 'stream_end' | 'error' | 'history'
+export type WSClientMessageType = 'chat' | 'stop' | 'history' | 'pong'
+export type WSServerMessageType = 'stream_chunk' | 'stream_end' | 'error' | 'history' | 'ping'
 
 export interface WSClientMessage {
   type: WSClientMessageType
@@ -82,3 +82,6 @@ export type WSServerMessage =
   | { type: 'stream_end' }
   | { type: 'error'; message: string }
   | { type: 'history'; messages: ChatMessage[] }
+  | { type: 'ping'; ts: number }
+
+export type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'

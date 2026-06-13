@@ -80,6 +80,7 @@ export default function App() {
         messages={chat.messages}
         isLoading={chat.isLoading}
         error={chat.error}
+        connectionState={chat.connectionState}
         model={currentModel}
         onModelChange={handleModelChange}
         onSend={handleSend}
