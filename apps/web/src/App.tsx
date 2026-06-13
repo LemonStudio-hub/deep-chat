@@ -21,15 +21,6 @@ export default function App() {
   const chat = useChat(activeId)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  // When switching conversations, load history from the Durable Object
-  useEffect(() => {
-    if (activeId) {
-      chat.loadHistory()
-    } else {
-      chat.clearMessages()
-    }
-  }, [activeId]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const currentModel: DeepSeekModel = activeConversation?.model || 'deepseek-chat'
 
   const handleSend = useCallback(
@@ -39,7 +30,6 @@ export default function App() {
         setTimeout(() => chat.sendMessage(content, currentModel), 50)
         return
       }
-      // Auto-title from first user message
       autoTitle(activeId, content)
       chat.sendMessage(content, currentModel)
     },
@@ -47,30 +37,25 @@ export default function App() {
   )
 
   const handleNewChat = useCallback(() => {
-    chat.stopGeneration()
-    chat.clearMessages()
     createNew(currentModel)
-  }, [createNew, currentModel, chat.clearMessages, chat.stopGeneration])
+    // useChat will reset state when activeId changes
+  }, [createNew, currentModel])
 
   const handleSwitch = useCallback(
     (id: string) => {
       if (id === activeId) return
-      // Stop any in-progress generation before switching
-      chat.stopGeneration()
-      chat.clearMessages()
       switchTo(id)
+      // useChat will close old socket, bump generation, load history
     },
-    [activeId, switchTo, chat.stopGeneration, chat.clearMessages],
+    [activeId, switchTo],
   )
 
   const handleDelete = useCallback(
     (id: string) => {
-      if (id === activeId) {
-        chat.stopGeneration()
-      }
       deleteConversation(id)
+      // useChat will handle cleanup if the deleted conversation was active
     },
-    [activeId, deleteConversation, chat.stopGeneration],
+    [deleteConversation],
   )
 
   const handleModelChange = useCallback(
@@ -85,7 +70,6 @@ export default function App() {
   // Global keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Ctrl/Cmd + N → new chat
       if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
         e.preventDefault()
         handleNewChat()
@@ -96,13 +80,7 @@ export default function App() {
   }, [handleNewChat])
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface-0 relative">
-      {/* Subtle ambient glow behind chat area */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-accent/[0.02] rounded-full blur-[120px]" />
-        <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-violet/[0.015] rounded-full blur-[100px]" />
-      </div>
-
+    <div className="flex h-screen overflow-hidden">
       <Sidebar
         conversations={conversations}
         activeId={activeId}

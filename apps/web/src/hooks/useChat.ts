@@ -19,75 +19,94 @@ export function useChat(conversationId: string | null): UseChatReturn {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
+
   const socketRef = useRef<ChatSocket | null>(null)
   const assistantBufferRef = useRef('')
   const conversationIdRef = useRef(conversationId)
+  // Generation counter — incremented on every conversation switch.
+  // Callbacks from old generations are silently discarded.
+  const generationRef = useRef(0)
 
-  // Keep ref in sync
   conversationIdRef.current = conversationId
 
-  // Create/reconnect socket when conversationId changes
+  // ── Socket lifecycle on conversation switch ──────────────────────────────
+
   useEffect(() => {
     if (!conversationId) {
       socketRef.current?.close()
       socketRef.current = null
       setConnectionState('disconnected')
+      setMessages([])
+      setIsLoading(false)
+      setError(null)
       return
     }
 
-    // If already connected to this conversation, reuse
-    if (socketRef.current?.isConnected) {
-      return
-    }
+    // Bump generation — any in-flight callbacks from the previous conversation
+    // will see a stale generation and discard themselves.
+    generationRef.current++
+    const myGeneration = generationRef.current
 
-    // Close old socket
+    // Close old socket (kills in-flight requests and their callbacks)
     socketRef.current?.close()
+    socketRef.current = null
+    setMessages([])
+    setIsLoading(false)
+    setError(null)
 
     const socket = new ChatSocket(conversationId, {
       maxReconnects: 8,
       onConnectionStateChange: (state) => {
+        if (myGeneration !== generationRef.current) return
         setConnectionState(state)
 
-        // When reconnected after a drop, reload history to resync
-        if (state === 'connected' && socketRef.current) {
-          // Small delay to let the connection stabilize
+        if (state === 'connected') {
+          // Resync history after reconnect
           setTimeout(() => {
-            if (conversationIdRef.current === conversationId) {
-              socketRef.current?.requestHistory({
-                onChunk: () => {},
-                onDone: () => {},
-                onError: () => {},
-                onHistory: (msgs) => setMessages(msgs),
-              })
-            }
+            if (myGeneration !== generationRef.current) return
+            if (conversationIdRef.current !== conversationId) return
+            socket.requestHistory({
+              onChunk: () => {},
+              onDone: () => {},
+              onError: () => {},
+              onHistory: (msgs) => {
+                if (myGeneration !== generationRef.current) return
+                setMessages(msgs)
+              },
+            })
           }, 100)
         }
       },
     })
 
     socketRef.current = socket
+  }, [conversationId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    return () => {
-      // Cleanup on conversationId change (not on every render)
-    }
-  }, [conversationId])
-
-  // Clean up socket on unmount
+  // Clean up on unmount
   useEffect(() => {
     return () => {
       socketRef.current?.close()
     }
   }, [])
 
+  // ── Actions ─────────────────────────────────────────────────────────────
+
   const loadHistory = useCallback(() => {
     const socket = socketRef.current
+    const gen = generationRef.current
     if (!socket) return
 
     socket.requestHistory({
       onChunk: () => {},
       onDone: () => {},
-      onError: (err) => setError(err.message),
-      onHistory: (msgs) => setMessages(msgs),
+      onError: (err) => {
+        if (gen !== generationRef.current) return
+        setError(err.message)
+      },
+      onHistory: (msgs) => {
+        if (gen !== generationRef.current) return
+        setMessages(msgs)
+      },
     })
   }, [])
 
@@ -98,6 +117,9 @@ export function useChat(conversationId: string | null): UseChatReturn {
       const socket = socketRef.current
       if (!socket) return
 
+      // Capture the generation at send time — all callbacks check this
+      const gen = generationRef.current
+
       setError(null)
       const userMessage: ChatMessage = { role: 'user', content: content.trim() }
       const updatedMessages = [...messages, userMessage]
@@ -106,22 +128,25 @@ export function useChat(conversationId: string | null): UseChatReturn {
       setIsLoading(true)
       assistantBufferRef.current = ''
 
-      // Add empty assistant message that will be filled by streaming
+      // Empty assistant placeholder
       setMessages([...updatedMessages, { role: 'assistant', content: '' }])
 
       await socket.sendChat(content.trim(), model, {
         onChunk: (text) => {
+          // Stale callback from a previous conversation — discard
+          if (gen !== generationRef.current) return
           assistantBufferRef.current += text
-          const buffered = assistantBufferRef.current
-          setMessages([...updatedMessages, { role: 'assistant', content: buffered }])
+          setMessages([...updatedMessages, { role: 'assistant', content: assistantBufferRef.current }])
         },
         onDone: () => {
+          if (gen !== generationRef.current) return
           setIsLoading(false)
         },
         onError: (err) => {
+          if (gen !== generationRef.current) return
           setError(err.message)
           setIsLoading(false)
-          // Remove the empty assistant message on error
+          // Roll back to messages without the empty assistant placeholder
           setMessages(updatedMessages)
         },
       })
