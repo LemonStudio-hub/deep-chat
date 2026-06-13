@@ -10,7 +10,7 @@ const app = new Hono<{ Bindings: Env }>()
 app.use(
   '/api/*',
   cors({
-    origin: '*',
+    origin: ['https://chat.memepedia.online'],
     allowMethods: ['GET', 'POST', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization'],
     maxAge: 86400,

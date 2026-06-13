@@ -254,7 +254,7 @@ ChatInput ──▶ useChat.sendMessage()
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/deep-chat.git
+git clone https://github.com/LemonStudio-hub/deep-chat.git
 cd deep-chat
 
 # Install all dependencies (monorepo)
@@ -286,13 +286,7 @@ These are set in `apps/api/wrangler.toml` under `[vars]` and can be overridden p
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VITE_API_URL` | Same-origin `/api` | Backend API URL. Set this in production if the API is on a different domain. |
-
-Create a `.env` file in `apps/web/` if needed:
-
-```bash
-VITE_API_URL=https://your-api-worker.workers.dev/api
-```
+| `VITE_API_URL` | Same-origin `/api` | Backend API URL. Already set to `https://api.memepedia.online` in `.env.production`. |
 
 ### Development
 
@@ -347,14 +341,13 @@ pnpm build
 npx wrangler pages deploy ./dist
 ```
 
-For production, set `VITE_API_URL` to your Worker's public URL before building:
+The production `VITE_API_URL` is already set in `apps/web/.env.production`:
 
-```bash
-cd apps/web
-VITE_API_URL=https://deep-chat-api.your-subdomain.workers.dev/api pnpm build
+```
+VITE_API_URL=https://api.memepedia.online
 ```
 
-Alternatively, configure the Cloudflare Pages project to use a route like `/api/*` that proxies to the Worker, keeping everything on the same domain.
+The frontend is accessible at **https://chat.memepedia.online** and the API at **https://api.memepedia.online**.
 
 ---
 
@@ -588,7 +581,7 @@ WebSocket upgrade endpoint. The `:conversationId` is a UUID that maps to a Durab
 | `DEEPSEEK_API_KEY` | Worker secret | ✅ | — | DeepSeek API authentication key |
 | `DEEPSEEK_BASE_URL` | Worker vars | ❌ | `https://api.deepseek.com` | DeepSeek API base URL |
 | `DEEPSEEK_DEFAULT_MODEL` | Worker vars | ❌ | `deepseek-chat` | Default model when unspecified |
-| `VITE_API_URL` | Frontend build | ❌ | Same-origin `/api` | Backend API URL for production |
+| `VITE_API_URL` | Frontend build | ❌ | `https://api.memepedia.online` | Backend API URL (set in `.env.production`) |
 
 ---
 
