@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import type { ChatMessage, DeepSeekModel } from '@deep-chat/shared'
-import { streamChat } from '../lib/api'
+import { ChatSocket } from '../lib/api'
 
 export interface UseChatReturn {
   messages: ChatMessage[]
@@ -10,18 +10,63 @@ export interface UseChatReturn {
   stopGeneration: () => void
   clearMessages: () => void
   setMessages: (messages: ChatMessage[]) => void
+  loadHistory: () => void
 }
 
-export function useChat(): UseChatReturn {
+export function useChat(conversationId: string | null): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
+  const socketRef = useRef<ChatSocket | null>(null)
   const assistantBufferRef = useRef('')
+
+  // Create/reconnect socket when conversationId changes
+  useEffect(() => {
+    if (!conversationId) {
+      socketRef.current?.close()
+      socketRef.current = null
+      return
+    }
+
+    // Reuse existing socket for same conversation
+    if (socketRef.current && socketRef.current.isConnected) {
+      // Already connected to this conversation — nothing to do
+      return
+    }
+
+    socketRef.current?.close()
+    socketRef.current = new ChatSocket(conversationId)
+
+    return () => {
+      // Don't close on every render — only on unmount or conversationId change
+    }
+  }, [conversationId])
+
+  // Clean up socket on unmount
+  useEffect(() => {
+    return () => {
+      socketRef.current?.close()
+    }
+  }, [])
+
+  const loadHistory = useCallback(() => {
+    const socket = socketRef.current
+    if (!socket) return
+
+    socket.requestHistory({
+      onChunk: () => {},
+      onDone: () => {},
+      onError: (err) => setError(err.message),
+      onHistory: (msgs) => setMessages(msgs),
+    })
+  }, [])
 
   const sendMessage = useCallback(
     async (content: string, model: DeepSeekModel) => {
       if (!content.trim() || isLoading) return
+
+      const socket = socketRef.current
+      if (!socket) return
 
       setError(null)
       const userMessage: ChatMessage = { role: 'user', content: content.trim() }
@@ -31,41 +76,31 @@ export function useChat(): UseChatReturn {
       setIsLoading(true)
       assistantBufferRef.current = ''
 
-      const abortController = new AbortController()
-      abortRef.current = abortController
-
       // Add empty assistant message that will be filled by streaming
       setMessages([...updatedMessages, { role: 'assistant', content: '' }])
 
-      await streamChat(
-        updatedMessages,
-        model,
-        {
-          onChunk: (text) => {
-            assistantBufferRef.current += text
-            const buffered = assistantBufferRef.current
-            setMessages([...updatedMessages, { role: 'assistant', content: buffered }])
-          },
-          onDone: () => {
-            setIsLoading(false)
-            abortRef.current = null
-          },
-          onError: (err) => {
-            setError(err.message)
-            setIsLoading(false)
-            abortRef.current = null
-            // Remove the empty assistant message on error
-            setMessages(updatedMessages)
-          },
+      await socket.sendChat(content.trim(), model, {
+        onChunk: (text) => {
+          assistantBufferRef.current += text
+          const buffered = assistantBufferRef.current
+          setMessages([...updatedMessages, { role: 'assistant', content: buffered }])
         },
-        abortController.signal,
-      )
+        onDone: () => {
+          setIsLoading(false)
+        },
+        onError: (err) => {
+          setError(err.message)
+          setIsLoading(false)
+          // Remove the empty assistant message on error
+          setMessages(updatedMessages)
+        },
+      })
     },
     [messages, isLoading],
   )
 
   const stopGeneration = useCallback(() => {
-    abortRef.current?.abort()
+    socketRef.current?.stop()
     setIsLoading(false)
   }, [])
 
@@ -82,5 +117,6 @@ export function useChat(): UseChatReturn {
     stopGeneration,
     clearMessages,
     setMessages,
+    loadHistory,
   }
 }

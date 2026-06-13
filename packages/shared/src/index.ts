@@ -65,3 +65,20 @@ export interface ApiError {
     code?: string
   }
 }
+
+// ─── WebSocket Protocol ──────────────────────────────────────────────────────
+
+export type WSClientMessageType = 'chat' | 'stop' | 'history'
+export type WSServerMessageType = 'stream_chunk' | 'stream_end' | 'error' | 'history'
+
+export interface WSClientMessage {
+  type: WSClientMessageType
+  content?: string
+  model?: DeepSeekModel
+}
+
+export type WSServerMessage =
+  | { type: 'stream_chunk'; content: string }
+  | { type: 'stream_end' }
+  | { type: 'error'; message: string }
+  | { type: 'history'; messages: ChatMessage[] }

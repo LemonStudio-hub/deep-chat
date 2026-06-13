@@ -17,19 +17,19 @@ export default function App() {
     updateModel,
   } = useConversations()
 
-  const chat = useChat()
+  const chat = useChat(activeId)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  // Sync chat messages with active conversation
+  // When switching conversations, load history from the Durable Object
   useEffect(() => {
-    if (activeConversation) {
-      chat.setMessages(activeConversation.messages)
+    if (activeId) {
+      chat.loadHistory()
     } else {
       chat.clearMessages()
     }
   }, [activeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Save messages back to conversation when they change
+  // Save messages back to conversation metadata when they change
   useEffect(() => {
     if (activeId && chat.messages.length > 0) {
       updateMessages(activeId, chat.messages)
@@ -42,7 +42,6 @@ export default function App() {
     (content: string) => {
       if (!activeId) {
         const newId = createNew(currentModel)
-        // Small delay to let state settle
         setTimeout(() => chat.sendMessage(content, currentModel), 50)
         return
       }

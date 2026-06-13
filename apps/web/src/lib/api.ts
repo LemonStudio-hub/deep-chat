@@ -1,8 +1,9 @@
-import type { ChatMessage, DeepSeekModel, StreamChunk } from '@deep-chat/shared'
+import type { ChatMessage, DeepSeekModel, WSServerMessage, WSClientMessage } from '@deep-chat/shared'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
+const WS_BASE = API_BASE.replace(/^http/, 'ws') || `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`
 
-// ─── Fetch available models ──────────────────────────────────────────────────
+// ─── Fetch available models (REST) ───────────────────────────────────────────
 
 export interface ModelInfo {
   id: DeepSeekModel
@@ -17,74 +18,139 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   return data.models
 }
 
-// ─── Stream chat completion ──────────────────────────────────────────────────
+// ─── WebSocket chat client ───────────────────────────────────────────────────
 
-export interface StreamCallbacks {
+export interface ChatCallbacks {
   onChunk: (text: string) => void
   onDone: () => void
   onError: (err: Error) => void
+  onHistory?: (messages: ChatMessage[]) => void
 }
 
-export async function streamChat(
-  messages: ChatMessage[],
-  model: DeepSeekModel,
-  callbacks: StreamCallbacks,
-  signal?: AbortSignal,
-): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, model, stream: true }),
-    signal,
-  })
+export class ChatSocket {
+  private ws: WebSocket | null = null
+  private conversationId: string
+  private callbacks: ChatCallbacks | null = null
+  private reconnectAttempts = 0
+  private maxReconnects = 3
+  private pendingConnect: Promise<void> | null = null
 
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    const msg = errorData?.error?.message || `HTTP ${res.status}`
-    throw new Error(msg)
+  constructor(conversationId: string) {
+    this.conversationId = conversationId
   }
 
-  const reader = res.body!.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
+  /** Ensure the WebSocket is connected. Returns a promise that resolves on open. */
+  connect(): Promise<void> {
+    if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve()
+    if (this.pendingConnect) return this.pendingConnect
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
+    this.pendingConnect = new Promise<void>((resolve, reject) => {
+      const url = `${WS_BASE}/api/ws/${this.conversationId}`
+      const ws = new WebSocket(url)
 
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed || !trimmed.startsWith('data: ')) continue
-
-        const data = trimmed.slice(6)
-        if (data === '[DONE]') {
-          callbacks.onDone()
-          return
-        }
-
-        try {
-          const chunk: StreamChunk = JSON.parse(data)
-          const content = chunk.choices?.[0]?.delta?.content
-          if (content) {
-            callbacks.onChunk(content)
-          }
-        } catch {
-          // Skip malformed JSON lines
-        }
+      ws.onopen = () => {
+        this.reconnectAttempts = 0
+        this.pendingConnect = null
+        resolve()
       }
+
+      ws.onmessage = (event) => {
+        this.handleMessage(event.data)
+      }
+
+      ws.onclose = () => {
+        this.ws = null
+        this.pendingConnect = null
+      }
+
+      ws.onerror = () => {
+        this.pendingConnect = null
+        reject(new Error('WebSocket connection failed'))
+      }
+
+      this.ws = ws
+    })
+
+    return this.pendingConnect
+  }
+
+  /** Send a chat message and stream the response via callbacks. */
+  async sendChat(content: string, model: DeepSeekModel, callbacks: ChatCallbacks): Promise<void> {
+    this.callbacks = callbacks
+
+    try {
+      await this.connect()
+    } catch (err) {
+      callbacks.onError(err instanceof Error ? err : new Error('Connection failed'))
+      return
     }
 
-    callbacks.onDone()
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      callbacks.onDone()
-    } else {
-      callbacks.onError(err instanceof Error ? err : new Error(String(err)))
+    const msg: WSClientMessage = { type: 'chat', content, model }
+    this.ws!.send(JSON.stringify(msg))
+  }
+
+  /** Request conversation history from the DO. */
+  async requestHistory(callbacks: ChatCallbacks): Promise<void> {
+    this.callbacks = callbacks
+
+    try {
+      await this.connect()
+    } catch (err) {
+      callbacks.onError(err instanceof Error ? err : new Error('Connection failed'))
+      return
+    }
+
+    const msg: WSClientMessage = { type: 'history' }
+    this.ws!.send(JSON.stringify(msg))
+  }
+
+  /** Stop the current generation. */
+  stop(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      const msg: WSClientMessage = { type: 'stop' }
+      this.ws.send(JSON.stringify(msg))
+    }
+  }
+
+  /** Close the WebSocket connection. */
+  close(): void {
+    this.ws?.close()
+    this.ws = null
+    this.callbacks = null
+    this.pendingConnect = null
+  }
+
+  /** Whether the socket is currently open. */
+  get isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN
+  }
+
+  private handleMessage(raw: string): void {
+    let data: WSServerMessage
+    try {
+      data = JSON.parse(raw)
+    } catch {
+      return
+    }
+
+    const cb = this.callbacks
+    if (!cb) return
+
+    switch (data.type) {
+      case 'stream_chunk':
+        cb.onChunk(data.content)
+        break
+      case 'stream_end':
+        cb.onDone()
+        this.callbacks = null
+        break
+      case 'error':
+        cb.onError(new Error(data.message))
+        this.callbacks = null
+        break
+      case 'history':
+        cb.onHistory?.(data.messages)
+        break
     }
   }
 }
