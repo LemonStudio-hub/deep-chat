@@ -1,0 +1,18 @@
+{
+  "name": "deep-chat",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @deep-chat/api run dev & pnpm --filter @deep-chat/web run dev",
+    "dev:api": "pnpm --filter @deep-chat/api run dev",
+    "dev:web": "pnpm --filter @deep-chat/web run dev",
+    "build": "pnpm --filter @deep-chat/shared run build && pnpm --filter @deep-chat/api run build && pnpm --filter @deep-chat/web run build",
+    "build:shared": "pnpm --filter @deep-chat/shared run build",
+    "deploy:api": "pnpm --filter @deep-chat/api run deploy",
+    "deploy:web": "pnpm --filter @deep-chat/web run deploy",
+    "lint": "pnpm -r run lint",
+    "clean": "pnpm -r run clean && rm -rf node_modules"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
