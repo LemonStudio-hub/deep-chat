@@ -1,20 +1,22 @@
 import { useState, useCallback, useEffect } from 'react'
-import type { Conversation, ChatMessage, DeepSeekModel } from '@deep-chat/shared'
+import type { DeepSeekModel } from '@deep-chat/shared'
+import type { ConversationMeta } from '../lib/storage'
 import { loadConversations, saveConversations, createConversation, generateTitle } from '../lib/storage'
 
 export interface UseConversationsReturn {
-  conversations: Conversation[]
+  conversations: ConversationMeta[]
   activeId: string | null
-  activeConversation: Conversation | undefined
+  activeConversation: ConversationMeta | undefined
   createNew: (model?: DeepSeekModel) => string
   switchTo: (id: string) => void
   deleteConversation: (id: string) => void
-  updateMessages: (id: string, messages: ChatMessage[]) => void
+  renameConversation: (id: string, title: string) => void
+  autoTitle: (id: string, firstMessage: string) => void
   updateModel: (id: string, model: DeepSeekModel) => void
 }
 
 export function useConversations(): UseConversationsReturn {
-  const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations())
+  const [conversations, setConversations] = useState<ConversationMeta[]>(() => loadConversations())
   const [activeId, setActiveId] = useState<string | null>(() => {
     const saved = loadConversations()
     return saved.length > 0 ? saved[0].id : null
@@ -52,16 +54,19 @@ export function useConversations(): UseConversationsReturn {
     [activeId],
   )
 
-  const updateMessages = useCallback((id: string, messages: ChatMessage[]) => {
+  const renameConversation = useCallback((id: string, title: string) => {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, title: trimmed, updatedAt: Date.now() } : c)),
+    )
+  }, [])
+
+  const autoTitle = useCallback((id: string, firstMessage: string) => {
     setConversations((prev) =>
       prev.map((c) =>
-        c.id === id
-          ? {
-              ...c,
-              messages,
-              title: c.title === 'New Chat' && messages.length > 0 ? generateTitle(messages) : c.title,
-              updatedAt: Date.now(),
-            }
+        c.id === id && c.title === 'New Chat'
+          ? { ...c, title: generateTitle(firstMessage), updatedAt: Date.now() }
           : c,
       ),
     )
@@ -80,7 +85,8 @@ export function useConversations(): UseConversationsReturn {
     createNew,
     switchTo,
     deleteConversation,
-    updateMessages,
+    renameConversation,
+    autoTitle,
     updateModel,
   }
 }

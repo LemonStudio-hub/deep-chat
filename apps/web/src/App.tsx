@@ -13,7 +13,8 @@ export default function App() {
     createNew,
     switchTo,
     deleteConversation,
-    updateMessages,
+    renameConversation,
+    autoTitle,
     updateModel,
   } = useConversations()
 
@@ -29,13 +30,6 @@ export default function App() {
     }
   }, [activeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Save messages back to conversation metadata when they change
-  useEffect(() => {
-    if (activeId && chat.messages.length > 0) {
-      updateMessages(activeId, chat.messages)
-    }
-  }, [chat.messages]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const currentModel: DeepSeekModel = activeConversation?.model || 'deepseek-chat'
 
   const handleSend = useCallback(
@@ -45,15 +39,39 @@ export default function App() {
         setTimeout(() => chat.sendMessage(content, currentModel), 50)
         return
       }
+      // Auto-title from first user message
+      autoTitle(activeId, content)
       chat.sendMessage(content, currentModel)
     },
-    [activeId, currentModel, chat.sendMessage, createNew],
+    [activeId, currentModel, chat.sendMessage, createNew, autoTitle],
   )
 
   const handleNewChat = useCallback(() => {
+    chat.stopGeneration()
     chat.clearMessages()
     createNew(currentModel)
-  }, [createNew, currentModel, chat.clearMessages])
+  }, [createNew, currentModel, chat.clearMessages, chat.stopGeneration])
+
+  const handleSwitch = useCallback(
+    (id: string) => {
+      if (id === activeId) return
+      // Stop any in-progress generation before switching
+      chat.stopGeneration()
+      chat.clearMessages()
+      switchTo(id)
+    },
+    [activeId, switchTo, chat.stopGeneration, chat.clearMessages],
+  )
+
+  const handleDelete = useCallback(
+    (id: string) => {
+      if (id === activeId) {
+        chat.stopGeneration()
+      }
+      deleteConversation(id)
+    },
+    [activeId, deleteConversation, chat.stopGeneration],
+  )
 
   const handleModelChange = useCallback(
     (model: DeepSeekModel) => {
@@ -64,14 +82,29 @@ export default function App() {
     [activeId, updateModel],
   )
 
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Ctrl/Cmd + N → new chat
+      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+        e.preventDefault()
+        handleNewChat()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [handleNewChat])
+
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
         conversations={conversations}
         activeId={activeId}
+        isLoading={chat.isLoading}
         onNew={handleNewChat}
-        onSwitch={switchTo}
-        onDelete={deleteConversation}
+        onSwitch={handleSwitch}
+        onDelete={handleDelete}
+        onRename={renameConversation}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />

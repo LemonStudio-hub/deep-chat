@@ -1,34 +1,49 @@
-import type { Conversation, ChatMessage, DeepSeekModel } from '@deep-chat/shared'
+import type { DeepSeekModel } from '@deep-chat/shared'
 
 const STORAGE_KEY = 'deep-chat-conversations'
 
-export function loadConversations(): Conversation[] {
+/** Lightweight metadata stored in localStorage. Messages live in the DO. */
+export interface ConversationMeta {
+  id: string
+  title: string
+  model: DeepSeekModel
+  createdAt: number
+  updatedAt: number
+}
+
+export function loadConversations(): ConversationMeta[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    // Migrate old format (with messages array) to new lightweight format
+    return parsed.map((c: any) => ({
+      id: c.id,
+      title: c.title || 'New Chat',
+      model: c.model || 'deepseek-chat',
+      createdAt: c.createdAt || Date.now(),
+      updatedAt: c.updatedAt || Date.now(),
+    }))
   } catch {
     return []
   }
 }
 
-export function saveConversations(conversations: Conversation[]): void {
+export function saveConversations(conversations: ConversationMeta[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations))
 }
 
-export function createConversation(model: DeepSeekModel = 'deepseek-chat'): Conversation {
+export function createConversation(model: DeepSeekModel = 'deepseek-chat'): ConversationMeta {
   return {
     id: crypto.randomUUID(),
     title: 'New Chat',
-    messages: [],
     model,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
 }
 
-export function generateTitle(messages: ChatMessage[]): string {
-  const firstUser = messages.find((m) => m.role === 'user')
-  if (!firstUser) return 'New Chat'
-  const text = firstUser.content.slice(0, 50)
-  return text.length < firstUser.content.length ? text + '…' : text
+export function generateTitle(firstMessage: string): string {
+  const text = firstMessage.slice(0, 50).trim()
+  return text.length < firstMessage.length ? text + '…' : text || 'New Chat'
 }

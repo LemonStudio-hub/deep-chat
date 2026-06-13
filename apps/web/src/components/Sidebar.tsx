@@ -1,17 +1,67 @@
-import type { Conversation, DeepSeekModel } from '@deep-chat/shared'
-import { Plus, MessageSquare, Trash2, X } from 'lucide-react'
+import type { ConversationMeta } from '../lib/storage'
+import { Plus, MessageSquare, Trash2, X, Pencil } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
 
 interface Props {
-  conversations: Conversation[]
+  conversations: ConversationMeta[]
   activeId: string | null
+  isLoading: boolean
   onNew: () => void
   onSwitch: (id: string) => void
   onDelete: (id: string) => void
+  onRename: (id: string, title: string) => void
   isOpen: boolean
   onClose: () => void
 }
 
-export default function Sidebar({ conversations, activeId, onNew, onSwitch, onDelete, isOpen, onClose }: Props) {
+export default function Sidebar({
+  conversations,
+  activeId,
+  isLoading,
+  onNew,
+  onSwitch,
+  onDelete,
+  onRename,
+  isOpen,
+  onClose,
+}: Props) {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const editRef = useRef<HTMLInputElement>(null)
+
+  // Focus input when entering edit mode
+  useEffect(() => {
+    if (editingId && editRef.current) {
+      editRef.current.focus()
+      editRef.current.select()
+    }
+  }, [editingId])
+
+  const startRename = (id: string, currentTitle: string) => {
+    setEditingId(id)
+    setEditValue(currentTitle)
+  }
+
+  const confirmRename = () => {
+    if (editingId && editValue.trim()) {
+      onRename(editingId, editValue)
+    }
+    setEditingId(null)
+  }
+
+  const cancelRename = () => {
+    setEditingId(null)
+  }
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      confirmRename()
+    } else if (e.key === 'Escape') {
+      cancelRename()
+    }
+  }
+
   return (
     <>
       {/* Mobile overlay */}
@@ -50,24 +100,62 @@ export default function Sidebar({ conversations, activeId, onNew, onSwitch, onDe
               <div
                 key={conv.id}
                 onClick={() => {
-                  onSwitch(conv.id)
-                  onClose()
+                  if (editingId !== conv.id) {
+                    onSwitch(conv.id)
+                    onClose()
+                  }
                 }}
                 className={`group flex items-center gap-2 px-3 py-2.5 rounded-xl cursor-pointer transition-colors ${
                   conv.id === activeId ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
                 }`}
               >
                 <MessageSquare size={14} className="flex-shrink-0 opacity-50" />
-                <span className="flex-1 text-sm truncate">{conv.title}</span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onDelete(conv.id)
-                  }}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-gray-500 hover:text-red-400 transition-all"
-                >
-                  <Trash2 size={14} />
-                </button>
+
+                {editingId === conv.id ? (
+                  <input
+                    ref={editRef}
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onKeyDown={handleEditKeyDown}
+                    onBlur={confirmRename}
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex-1 bg-surface-3 text-sm text-white px-2 py-0.5 rounded border border-accent/40 outline-none"
+                    maxLength={100}
+                  />
+                ) : (
+                  <span className="flex-1 text-sm truncate">{conv.title}</span>
+                )}
+
+                {/* Streaming indicator */}
+                {isLoading && conv.id === activeId && (
+                  <span className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                )}
+
+                {/* Action buttons */}
+                {editingId !== conv.id && (
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        startRename(conv.id, conv.title)
+                      }}
+                      className="p-1 rounded hover:bg-white/10 text-gray-500 hover:text-gray-300 transition-all"
+                      title="Rename"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDelete(conv.id)
+                      }}
+                      className="p-1 rounded hover:bg-white/10 text-gray-500 hover:text-red-400 transition-all"
+                      title="Delete"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                )}
               </div>
             ))
           )}
