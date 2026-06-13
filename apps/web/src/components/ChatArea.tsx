@@ -31,11 +31,14 @@ export default function ChatArea({ messages, isLoading, error, connectionState, 
   }, [messages])
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="flex-1 flex flex-col min-h-0 relative z-10">
       {/* Top bar */}
-      <header className="flex items-center gap-3 px-4 py-3 border-b border-white/5 bg-surface-0/80 backdrop-blur-sm">
-        <button onClick={onMenuOpen} className="lg:hidden p-1.5 rounded-lg hover:bg-white/10 text-gray-400">
-          <Menu size={20} />
+      <header className="flex items-center gap-3 px-4 lg:px-6 py-3 border-b border-white/[0.04] bg-surface-0/70 backdrop-blur-xl shadow-sm shadow-black/10">
+        <button
+          onClick={onMenuOpen}
+          className="lg:hidden p-2 rounded-xl hover:bg-white/[0.06] text-zinc-500 hover:text-zinc-300 transition-colors"
+        >
+          <Menu size={18} />
         </button>
         <ModelSelector value={model} onChange={onModelChange} />
         <div className="flex-1" />
@@ -46,8 +49,11 @@ export default function ChatArea({ messages, isLoading, error, connectionState, 
       {messages.length === 0 ? (
         <WelcomeScreen onSuggestion={onSend} />
       ) : (
-        <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto py-4">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-smooth">
+          {/* Top fade for scroll indication */}
+          <div className="sticky top-0 h-6 bg-gradient-to-b from-surface-0 to-transparent z-10 pointer-events-none" />
+
+          <div className="max-w-3xl mx-auto px-4 lg:px-0 pb-4">
             {messages.map((msg, i) => (
               <MessageBubble
                 key={i}
@@ -57,9 +63,10 @@ export default function ChatArea({ messages, isLoading, error, connectionState, 
             ))}
 
             {error && (
-              <div className="mx-4 my-3 flex items-center gap-2 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm animate-fade-in">
-                <AlertCircle size={16} />
-                {error}
+              <div className="mx-4 my-3 flex items-start gap-3 px-4 py-3.5 rounded-xl bg-red-500/[0.08] border border-red-500/10 text-red-400 text-sm animate-slide-up">
+                <div className="w-1 h-full min-h-[20px] rounded-full bg-red-500/40 flex-shrink-0 mt-0.5" />
+                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                <span className="leading-relaxed">{error}</span>
               </div>
             )}
           </div>

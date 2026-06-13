@@ -17,12 +17,12 @@ export default function ConnectionStatus({ state }: Props) {
 
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium animate-fade-in ${
+      className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-[11px] font-medium animate-slide-up backdrop-blur-sm ring-1 ${
         state === 'reconnecting'
-          ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+          ? 'bg-yellow-500/[0.08] text-yellow-400 ring-yellow-500/15'
           : state === 'connecting'
-            ? 'bg-accent/10 text-accent border border-accent/20'
-            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+            ? 'bg-accent/[0.08] text-accent ring-accent/15'
+            : 'bg-red-500/[0.08] text-red-400 ring-red-500/15'
       }`}
     >
       {state === 'disconnected' ? (

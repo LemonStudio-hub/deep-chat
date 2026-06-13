@@ -96,7 +96,13 @@ export default function App() {
   }, [handleNewChat])
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-surface-0 relative">
+      {/* Subtle ambient glow behind chat area */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] bg-accent/[0.02] rounded-full blur-[120px]" />
+        <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-violet/[0.015] rounded-full blur-[100px]" />
+      </div>
+
       <Sidebar
         conversations={conversations}
         activeId={activeId}

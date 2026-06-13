@@ -22,25 +22,32 @@ function CodeBlock({ children, ...props }: { children?: React.ReactNode; classNa
 
   if (isInline) {
     return (
-      <code className="bg-white/10 rounded px-1.5 py-0.5 text-sm font-mono text-accent" {...props}>
+      <code
+        className="bg-accent/[0.08] text-accent rounded-md px-1.5 py-0.5 text-[13px] font-mono ring-1 ring-white/[0.06]"
+        {...props}
+      >
         {children}
       </code>
     )
   }
 
   return (
-    <div className="relative group my-3">
-      <div className="flex items-center justify-between bg-surface-3 rounded-t-lg px-4 py-2 text-xs text-gray-400">
-        <span>{props.className?.replace('language-', '') || 'code'}</span>
+    <div className="relative group my-4 rounded-xl overflow-hidden ring-1 ring-white/[0.06]">
+      <div className="flex items-center justify-between bg-surface-3/80 px-4 py-2 text-[11px] text-zinc-500 font-mono">
+        <span className="uppercase tracking-wider">{props.className?.replace('language-', '') || 'code'}</span>
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1 px-2 py-1 rounded hover:bg-white/10 transition-colors"
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-all duration-200 text-[11px] ${
+            copied
+              ? 'bg-emerald-500/10 text-emerald-400'
+              : 'hover:bg-white/[0.06] text-zinc-500 hover:text-zinc-300'
+          }`}
         >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? <Check size={12} /> : <Copy size={12} />}
           {copied ? 'Copied!' : 'Copy'}
         </button>
       </div>
-      <pre className="bg-[#0d1117] rounded-b-lg p-4 overflow-x-auto">
+      <pre className="bg-[#0d1117] p-4 overflow-x-auto">
         <code className={props.className} {...props}>
           {children}
         </code>
@@ -52,14 +59,14 @@ function CodeBlock({ children, ...props }: { children?: React.ReactNode; classNa
 export default function MarkdownRenderer({ content }: Props) {
   return (
     <ReactMarkdown
-      className="prose prose-invert prose-sm max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent"
+      className="prose prose-invert prose-sm max-w-none prose-p:leading-[1.7] prose-pre:p-0 prose-pre:bg-transparent prose-headings:scroll-mt-4"
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeHighlight]}
       components={{
         code: CodeBlock,
         a: ({ children, ...props }) => (
           <a
-            className="text-accent hover:text-accent/80 underline underline-offset-2"
+            className="text-accent hover:text-accent/80 no-underline font-medium border-b border-accent/30 hover:border-accent/60 transition-colors"
             target="_blank"
             rel="noopener noreferrer"
             {...props}
@@ -68,21 +75,32 @@ export default function MarkdownRenderer({ content }: Props) {
           </a>
         ),
         table: ({ children, ...props }) => (
-          <div className="overflow-x-auto my-3">
-            <table className="border-collapse text-sm" {...props}>
+          <div className="overflow-x-auto my-4 rounded-xl ring-1 ring-white/[0.06]">
+            <table className="border-collapse text-sm w-full" {...props}>
               {children}
             </table>
           </div>
         ),
         th: ({ children, ...props }) => (
-          <th className="border border-white/10 bg-surface-3 px-3 py-2 text-left font-medium" {...props}>
+          <th className="border-b border-white/[0.06] bg-surface-3/50 px-4 py-2.5 text-left font-medium text-zinc-300" {...props}>
             {children}
           </th>
         ),
         td: ({ children, ...props }) => (
-          <td className="border border-white/10 px-3 py-2" {...props}>
+          <td className="border-b border-white/[0.03] px-4 py-2.5 text-zinc-400" {...props}>
             {children}
           </td>
+        ),
+        blockquote: ({ children, ...props }) => (
+          <blockquote
+            className="border-l-[3px] border-accent/30 pl-4 py-0.5 my-4 text-zinc-400 italic bg-accent/[0.02] rounded-r-lg"
+            {...props}
+          >
+            {children}
+          </blockquote>
+        ),
+        hr: ({ ...props }) => (
+          <hr className="my-6 border-white/[0.06]" {...props} />
         ),
       }}
     >

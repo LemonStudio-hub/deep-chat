@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Square } from 'lucide-react'
+import { Send, Square, CornerDownLeft } from 'lucide-react'
 
 interface Props {
   onSend: (message: string) => void
@@ -37,10 +37,16 @@ export default function ChatInput({ onSend, onStop, isLoading, disabled }: Props
     }
   }
 
+  const hasContent = value.trim().length > 0
+
   return (
-    <div className="p-4">
+    <div className="p-4 lg:pb-5">
       <div className="max-w-3xl mx-auto relative">
-        <div className="glass rounded-2xl flex items-end gap-2 p-2">
+        <div
+          className={`glass rounded-2xl flex items-end gap-2 p-2 transition-all duration-300 ${
+            hasContent ? 'ring-1 ring-accent/[0.12] shadow-glow-sm' : ''
+          }`}
+        >
           <textarea
             ref={textareaRef}
             value={value}
@@ -49,23 +55,33 @@ export default function ChatInput({ onSend, onStop, isLoading, disabled }: Props
             placeholder="Type a message…"
             disabled={disabled}
             rows={1}
-            className="flex-1 bg-transparent resize-none px-3 py-2 text-sm text-white placeholder-gray-500 outline-none max-h-[200px]"
+            className="flex-1 bg-transparent resize-none px-3 py-2 text-[14px] text-zinc-100 placeholder:text-zinc-600 outline-none max-h-[200px] leading-[1.6] selection:bg-accent/20"
           />
-          <button
-            onClick={handleSend}
-            disabled={(!value.trim() && !isLoading) || disabled}
-            className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all ${
-              isLoading
-                ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                : value.trim()
-                  ? 'bg-accent/20 text-accent hover:bg-accent/30'
-                  : 'bg-white/5 text-gray-600'
-            }`}
-          >
-            {isLoading ? <Square size={16} /> : <Send size={16} />}
-          </button>
+
+          <div className="flex items-center gap-1.5 pb-0.5">
+            {!isLoading && !hasContent && (
+              <span className="hidden sm:flex items-center gap-1 text-[11px] text-zinc-700 mr-1">
+                <CornerDownLeft size={11} />
+                Enter
+              </span>
+            )}
+            <button
+              onClick={handleSend}
+              disabled={(!value.trim() && !isLoading) || disabled}
+              className={`flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 ${
+                isLoading
+                  ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25 ring-1 ring-red-500/20 animate-glow-pulse'
+                  : hasContent
+                    ? 'bg-gradient-to-br from-accent/20 to-accent/10 text-accent hover:from-accent/25 hover:to-accent/15 ring-1 ring-accent/20 shadow-glow-sm hover:scale-105 active:scale-95'
+                    : 'bg-white/[0.04] text-zinc-700 cursor-not-allowed'
+              }`}
+            >
+              {isLoading ? <Square size={14} /> : <Send size={14} className={hasContent ? '' : ''} />}
+            </button>
+          </div>
         </div>
-        <p className="text-center text-xs text-gray-600 mt-2">
+
+        <p className="text-center text-[11px] text-zinc-700 mt-2.5 italic">
           DeepSeek can make mistakes. Consider checking important information.
         </p>
       </div>
